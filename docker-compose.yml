@@ -1,0 +1,35 @@
+services:
+  
+  platformio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: platformio
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/project
+    devices:
+      - "/dev/ttyUSB0:/dev/ttyUSB0"
+    privileged: true
+
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mqtt
+    environment:
+      - BROKER=mqtt
+    volumes:
+      - ./backend:/app

@@ -1,1 +1,5 @@
 .pio
+*.db
+*.log
+mosquitto/data/
+mosquitto/log/

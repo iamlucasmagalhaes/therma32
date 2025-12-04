@@ -7,7 +7,7 @@
 
 const char* ssid = "IFNMG-VISITANTES";
 const char* password = "visitante";
-const char* mqtt_server = "192.168.26.131";
+const char* mqtt_server = "192.168.28.244";
 
 WiFiClient espClient;
 PubSubClient client(espClient);

@@ -33,9 +33,16 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - mqtt
+      mqtt:
+        condition: service_started
+      database:
+        condition: service_healthy
     environment:
       - BROKER=mqtt
+      - DB_HOST=database
+      - DB_NAME=app
+      - DB_USER=user
+      - DB_PASSWORD=password
     volumes:
       - ./backend:/app
 

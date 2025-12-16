@@ -5,42 +5,109 @@ import json
 import os
 import time
 import threading
-import random
+from datetime import datetime
 
-# Configurações
+from sqlalchemy import create_engine, Column, Integer, Float, DateTime
+from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
+
+# =========================
+# Configurações MQTT
+# =========================
 BROKER = os.getenv("BROKER", "mqtt")
 TOPICO = "lab/03/dht11"
 
-app = Flask(__name__, template_folder="templates")
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+# =========================
+# Configurações Banco
+# =========================
+DB_HOST = os.getenv("DB_HOST", "database")
+DB_NAME = os.getenv("DB_NAME", "app")
+DB_USER = os.getenv("DB_USER", "user")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 
-# Funções de callbacks do MQTT
+DATABASE_URL = (
+    f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
+)
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
+
+SessionLocal = scoped_session(sessionmaker(bind=engine))
+Base = declarative_base()
+
+# =========================
+# Modelo da Tabela
+# =========================
+class DHT11Leitura(Base):
+    __tablename__ = "leituras_dht11"
+
+    id = Column(Integer, primary_key=True)
+    temperatura = Column(Float, nullable=False)
+    umidade = Column(Float, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
+
+# =========================
+# Flask / Socket.IO
+# =========================
+app = Flask(__name__, template_folder="templates")
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*",
+    async_mode="threading"
+)
+
+# =========================
+# MQTT Callbacks
+# =========================
 def ao_conectar(client, userdata, flags, rc):
     print(f"Conectado ao broker MQTT (código {rc})")
     client.subscribe(TOPICO)
 
 def ao_receber_mensagem(client, userdata, msg):
+    db = SessionLocal()
     try:
         payload = msg.payload.decode()
         dados = json.loads(payload)
 
-        # Converte para float
-        dados["temperatura"] = float(dados["temperatura"])
-        dados["umidade"] = float(dados["umidade"])
+        temperatura = float(dados["temperatura"])
+        umidade = float(dados["umidade"])
 
-        log_texto = f"Temperatura: {dados['temperatura']}°C | Umidade: {dados['umidade']}%"
+        # Salva no banco
+        leitura = DHT11Leitura(
+            temperatura=temperatura,
+            umidade=umidade
+        )
+        db.add(leitura)
+        db.commit()
+
+        log_texto = f"Temperatura: {temperatura}°C | Umidade: {umidade}%"
         print(log_texto)
 
-        # Envio thread-safe para frontend
-        socketio.emit("atualizacao_dados", dados)
-        socketio.emit("log_mensagem", {"mensagem": log_texto})
+        # Envia para frontend
+        socketio.emit("atualizacao_dados", {
+            "temperatura": temperatura,
+            "umidade": umidade
+        })
+        socketio.emit("log_mensagem", {
+            "mensagem": log_texto
+        })
 
     except Exception as erro:
+        db.rollback()
         erro_msg = f"Erro ao processar mensagem: {erro}"
         print(erro_msg)
         socketio.emit("log_mensagem", {"mensagem": erro_msg})
 
-# Inicializa cliente MQTT
+    finally:
+        db.close()
+
+# =========================
+# MQTT Setup
+# =========================
 mqtt_client = mqtt.Client()
 mqtt_client.on_connect = ao_conectar
 mqtt_client.on_message = ao_receber_mensagem
@@ -61,10 +128,16 @@ def mqtt_loop():
 
 threading.Thread(target=mqtt_loop, daemon=True).start()
 
+# =========================
+# Rotas Flask
+# =========================
 @app.route("/")
 def index():
     return render_template("index.html")
 
+# =========================
+# Run
+# =========================
 if __name__ == "__main__":
     print("Servidor Flask rodando em http://0.0.0.0:5000")
     socketio.run(

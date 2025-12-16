@@ -5,13 +5,14 @@ import json
 import os
 import time
 import threading
+import random
 
 # Configurações
 BROKER = os.getenv("BROKER", "mqtt")
 TOPICO = "lab/03/dht11"
 
 app = Flask(__name__, template_folder="templates")
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Funções de callbacks do MQTT
 def ao_conectar(client, userdata, flags, rc):
@@ -23,14 +24,15 @@ def ao_receber_mensagem(client, userdata, msg):
         payload = msg.payload.decode()
         dados = json.loads(payload)
 
-        # Monta log formatado
+        # Converte para float
+        dados["temperatura"] = float(dados["temperatura"])
+        dados["umidade"] = float(dados["umidade"])
+
         log_texto = f"Temperatura: {dados['temperatura']}°C | Umidade: {dados['umidade']}%"
         print(log_texto)
 
-        # Envia dados para o frontend
+        # Envio thread-safe para frontend
         socketio.emit("atualizacao_dados", dados)
-
-        # Envia o log para o painel de logs do frontend
         socketio.emit("log_mensagem", {"mensagem": log_texto})
 
     except Exception as erro:
@@ -38,12 +40,11 @@ def ao_receber_mensagem(client, userdata, msg):
         print(erro_msg)
         socketio.emit("log_mensagem", {"mensagem": erro_msg})
 
-# Inicializa o cliente MQTT
+# Inicializa cliente MQTT
 mqtt_client = mqtt.Client()
 mqtt_client.on_connect = ao_conectar
 mqtt_client.on_message = ao_receber_mensagem
 
-# Thread para rodar o loop do MQTT
 def mqtt_loop():
     while True:
         try:
@@ -66,4 +67,11 @@ def index():
 
 if __name__ == "__main__":
     print("Servidor Flask rodando em http://0.0.0.0:5000")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=True,
+        use_reloader=False,
+        allow_unsafe_werkzeug=True
+    )

@@ -6,19 +6,16 @@ import os
 import time
 import threading
 from datetime import datetime
+from flask import jsonify, request
 
 from sqlalchemy import create_engine, Column, Integer, Float, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
 
-# =========================
 # Configurações MQTT
-# =========================
 BROKER = os.getenv("BROKER", "mqtt")
 TOPICO = "lab/03/dht11"
 
-# =========================
 # Configurações Banco
-# =========================
 DB_HOST = os.getenv("DB_HOST", "database")
 DB_NAME = os.getenv("DB_NAME", "app")
 DB_USER = os.getenv("DB_USER", "user")
@@ -37,9 +34,7 @@ engine = create_engine(
 SessionLocal = scoped_session(sessionmaker(bind=engine))
 Base = declarative_base()
 
-# =========================
 # Modelo da Tabela
-# =========================
 class DHT11Leitura(Base):
     __tablename__ = "leituras_dht11"
 
@@ -50,9 +45,7 @@ class DHT11Leitura(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# =========================
 # Flask / Socket.IO
-# =========================
 app = Flask(__name__, template_folder="templates")
 socketio = SocketIO(
     app,
@@ -60,9 +53,7 @@ socketio = SocketIO(
     async_mode="threading"
 )
 
-# =========================
 # MQTT Callbacks
-# =========================
 def ao_conectar(client, userdata, flags, rc):
     print(f"Conectado ao broker MQTT (código {rc})")
     client.subscribe(TOPICO)
@@ -105,9 +96,6 @@ def ao_receber_mensagem(client, userdata, msg):
     finally:
         db.close()
 
-# =========================
-# MQTT Setup
-# =========================
 mqtt_client = mqtt.Client()
 mqtt_client.on_connect = ao_conectar
 mqtt_client.on_message = ao_receber_mensagem
@@ -128,16 +116,41 @@ def mqtt_loop():
 
 threading.Thread(target=mqtt_loop, daemon=True).start()
 
-# =========================
-# Rotas Flask
-# =========================
 @app.route("/")
 def index():
     return render_template("index.html")
 
-# =========================
-# Run
-# =========================
+@app.route("/api/leituras", methods=["GET"])
+def listar_leituras():
+    limit = request.args.get("limit", default=100, type=int)
+
+    db = SessionLocal()
+    try:
+        leituras = (
+            db.query(DHT11Leitura)
+            .order_by(DHT11Leitura.timestamp.desc())
+            .limit(limit)
+            .all()
+        )
+
+        resultado = [
+            {
+                "id": l.id,
+                "temperatura": l.temperatura,
+                "umidade": l.umidade,
+                "timestamp": l.timestamp.isoformat()
+            }
+            for l in leituras
+        ]
+
+        return jsonify(resultado)
+
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+    finally:
+        db.close()
+
 if __name__ == "__main__":
     print("Servidor Flask rodando em http://0.0.0.0:5000")
     socketio.run(

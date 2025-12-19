@@ -5,9 +5,9 @@
 #define DHTPIN 4
 #define DHTTYPE DHT11
 
-const char* ssid = "IFNMG-VISITANTES";
-const char* password = "visitante";
-const char* mqtt_server = "192.168.26.131";
+const char* ssid = "Bigode";
+const char* password = "laismr1010";
+const char* mqtt_server = "192.168.100.203";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
